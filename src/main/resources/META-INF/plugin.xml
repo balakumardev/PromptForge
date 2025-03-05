@@ -1,0 +1,88 @@
+<idea-plugin>
+    <id>dev.balakumar.promptforge</id>
+    <name>PromptForge</name>
+    <version>1.0</version>
+    <vendor email="mail@balakumar.dev" url="https://balakumar.dev">BalaKumar.dev</vendor>
+
+    <description><![CDATA[
+        <p>PromptForge helps you create optimized prompts for LLMs by intelligently gathering code context.</p>
+
+        <p><b>Features:</b></p>
+        <ul>
+          <li>Generate test-specific prompts (new or modified files)</li>
+          <li>Explain code with related context</li>
+          <li>Ask questions about code with full context</li>
+          <li>Get suggestions for code changes</li>
+          <li>Copy code with related context for custom prompts</li>
+          <li>Automatically detect file changes and test files</li>
+          <li>Include related files for better context</li>
+          <li>Configurable prompts and settings</li>
+          <li>Support for decompiled classes</li>
+          <li>Smart content pruning</li>
+        </ul>
+        ]]>
+    </description>
+
+    <idea-version since-build="231" until-build="243.*"/>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>org.jetbrains.kotlin</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="dev.balakumar.promptforge.settings.PromptForgeSettings"/>
+        <applicationConfigurable
+                parentId="tools"
+                instance="dev.balakumar.promptforge.settings.PromptForgeSettingsConfigurable"
+                id="dev.balakumar.promptforge.settings.PromptForgeSettingsConfigurable"
+                displayName="PromptForge"/>
+    </extensions>
+
+    <actions>
+        <group id="PromptForge.ActionGroup"
+               text="PromptForge"
+               description="PromptForge actions"
+               popup="true"
+               icon="/icons/promptforge.svg">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
+            <add-to-group group-id="EditorTabPopupMenu" anchor="first"/>
+
+            <action id="PromptForge.GenerateTests"
+                    class="dev.balakumar.promptforge.actions.GenerateTestsAction"
+                    text="Generate Tests"
+                    description="Generate tests for the current file"
+                    icon="/icons/test.svg">
+            </action>
+
+            <action id="PromptForge.ExplainCode"
+                    class="dev.balakumar.promptforge.actions.ExplainCodeAction"
+                    text="Explain the Code File"
+                    description="Explain the current file with related context"
+                    icon="/icons/explain.svg">
+            </action>
+
+            <action id="PromptForge.AskQuestion"
+                    class="dev.balakumar.promptforge.actions.AskQuestionAction"
+                    text="Ask Question About Code"
+                    description="Ask a question about the current file with context"
+                    icon="/icons/question.svg">
+            </action>
+
+            <action id="PromptForge.MakeChange"
+                    class="dev.balakumar.promptforge.actions.MakeChangeAction"
+                    text="Make a Change"
+                    description="Get suggestions for making a change to the code"
+                    icon="/icons/change.svg">
+            </action>
+
+            <action id="PromptForge.CopyWithContext"
+                    class="dev.balakumar.promptforge.actions.CopyWithContextAction"
+                    text="Copy with Context"
+                    description="Copy the current file with related context without any prompt"
+                    icon="/icons/copy.svg">
+            </action>
+        </group>
+    </actions>
+
+</idea-plugin>
