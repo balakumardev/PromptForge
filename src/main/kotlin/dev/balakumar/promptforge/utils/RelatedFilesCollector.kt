@@ -21,6 +21,7 @@ import dev.balakumar.promptforge.settings.PromptForgeSettings
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtImportDirective
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.HashSet
 
 class RelatedFilesCollector(private val project: Project) {
     private val LOG = Logger.getInstance(RelatedFilesCollector::class.java)
@@ -35,17 +36,26 @@ class RelatedFilesCollector(private val project: Project) {
         val processedFiles = mutableSetOf<String>()
         val decompiledFilesCount = AtomicInteger(0)
 
+        // Track direct and indirect references
+        val directReferences = mutableSetOf<String>()
+        val indirectReferences = mutableSetOf<String>()
+
         // Skip the main file itself
         processedFiles.add(file.path)
 
         // Get the PsiFile for the current file
         val psiFile = PsiManager.getInstance(project).findFile(file) ?: return emptyList()
 
-        // Process the file recursively
+        // First pass: collect direct references from the main file
+        collectDirectReferences(psiFile, directReferences)
+
+        // Process the file recursively with improved reference tracking
         processFileRecursively(
             psiFile,
             result,
             processedFiles,
+            directReferences,
+            indirectReferences,
             0,
             settings.state.maxDepth,
             settings.state.maxRelatedFiles,
@@ -55,10 +65,47 @@ class RelatedFilesCollector(private val project: Project) {
         return result
     }
 
+    private fun collectDirectReferences(psiFile: PsiFile, directReferences: MutableSet<String>) {
+        psiFile.accept(object : PsiRecursiveElementVisitor() {
+            override fun visitElement(element: PsiElement) {
+                super.visitElement(element)
+
+                when (element) {
+                    is PsiJavaCodeReferenceElement -> {
+                        val resolved = element.resolve()
+                        if (resolved is PsiClass) {
+                            val qualifiedName = resolved.qualifiedName ?: return
+                            if (!shouldSkipPackage(qualifiedName)) {
+                                directReferences.add(qualifiedName)
+                            }
+                        }
+                    }
+                    is PsiImportStatement -> {
+                        val importedClass = element.resolve()
+                        if (importedClass is PsiClass) {
+                            val qualifiedName = importedClass.qualifiedName ?: return
+                            if (!shouldSkipPackage(qualifiedName)) {
+                                directReferences.add(qualifiedName)
+                            }
+                        }
+                    }
+                    is KtImportDirective -> {
+                        val importPath = element.importPath?.pathStr ?: return
+                        if (!shouldSkipPackage(importPath)) {
+                            directReferences.add(importPath)
+                        }
+                    }
+                }
+            }
+        })
+    }
+
     private fun processFileRecursively(
         psiFile: PsiFile,
         result: MutableList<RelatedFile>,
         processedFiles: MutableSet<String>,
+        directReferences: MutableSet<String>,
+        indirectReferences: MutableSet<String>,
         currentDepth: Int,
         maxDepth: Int,
         maxFiles: Int,
@@ -69,8 +116,8 @@ class RelatedFilesCollector(private val project: Project) {
         }
 
         // Process imports and references
-        val references = mutableSetOf<PsiFile>()
-        val directReferences = mutableSetOf<String>()
+        val referencesToProcess = mutableSetOf<PsiFile>()
+        val currentFileReferences = mutableSetOf<String>()
 
         // Collect references from the file
         psiFile.accept(object : PsiRecursiveElementVisitor() {
@@ -81,21 +128,24 @@ class RelatedFilesCollector(private val project: Project) {
 
                 when (element) {
                     is PsiJavaCodeReferenceElement -> {
-                        collectReference(element, directReferences, references)
+                        collectReference(element, currentFileReferences, referencesToProcess, directReferences, indirectReferences, currentDepth)
                     }
                     is PsiImportStatement -> {
-                        collectImport(element, directReferences, references)
+                        collectImport(element, currentFileReferences, referencesToProcess, directReferences, indirectReferences, currentDepth)
                     }
                     is KtImportDirective -> {
-                        collectKotlinImport(element, directReferences, references)
+                        collectKotlinImport(element, currentFileReferences, referencesToProcess, directReferences, indirectReferences, currentDepth)
                     }
                 }
             }
 
             private fun collectReference(
                 reference: PsiJavaCodeReferenceElement,
+                currentRefs: MutableSet<String>,
+                refsToProcess: MutableSet<PsiFile>,
                 directRefs: MutableSet<String>,
-                refsToProcess: MutableSet<PsiFile>
+                indirectRefs: MutableSet<String>,
+                depth: Int
             ) {
                 val resolved = reference.resolve()
                 if (resolved is PsiClass) {
@@ -106,25 +156,36 @@ class RelatedFilesCollector(private val project: Project) {
                         return
                     }
 
-                    if (!directRefs.contains(qualifiedName)) {
-                        directRefs.add(qualifiedName)
+                    if (!currentRefs.contains(qualifiedName)) {
+                        currentRefs.add(qualifiedName)
 
-                        // Add the containing file to process
-                        val containingFile = resolved.containingFile
-                        if (containingFile != null &&
-                            containingFile.virtualFile != null &&
-                            !processedFiles.contains(containingFile.virtualFile.path)) {
-                            refsToProcess.add(containingFile)
+                        // Track as indirect reference if not direct and we're beyond depth 0
+                        if (depth > 0 && !directRefs.contains(qualifiedName)) {
+                            indirectRefs.add(qualifiedName)
                         }
 
-                        // If this is an interface and we want implementations
-                        if (settings.state.includeImplementations && resolved.isInterface) {
-                            findImplementations(resolved).forEach { implClass ->
-                                val implFile = implClass.containingFile
-                                if (implFile != null &&
-                                    implFile.virtualFile != null &&
-                                    !processedFiles.contains(implFile.virtualFile.path)) {
-                                    refsToProcess.add(implFile)
+                        // Only process files that are direct references or within allowed depth
+                        // and not too many indirect references
+                        if (directRefs.contains(qualifiedName) ||
+                            (depth <= 1 && indirectRefs.size <= settings.state.maxRelatedFiles)) {
+
+                            // Add the containing file to process
+                            val containingFile = resolved.containingFile
+                            if (containingFile != null &&
+                                containingFile.virtualFile != null &&
+                                !processedFiles.contains(containingFile.virtualFile.path)) {
+                                refsToProcess.add(containingFile)
+                            }
+
+                            // If this is an interface and we want implementations
+                            if (settings.state.includeImplementations && resolved.isInterface) {
+                                findImplementations(resolved).forEach { implClass ->
+                                    val implFile = implClass.containingFile
+                                    if (implFile != null &&
+                                        implFile.virtualFile != null &&
+                                        !processedFiles.contains(implFile.virtualFile.path)) {
+                                        refsToProcess.add(implFile)
+                                    }
                                 }
                             }
                         }
@@ -134,8 +195,11 @@ class RelatedFilesCollector(private val project: Project) {
 
             private fun collectImport(
                 importStmt: PsiImportStatement,
+                currentRefs: MutableSet<String>,
+                refsToProcess: MutableSet<PsiFile>,
                 directRefs: MutableSet<String>,
-                refsToProcess: MutableSet<PsiFile>
+                indirectRefs: MutableSet<String>,
+                depth: Int
             ) {
                 val importedClass = importStmt.resolve()
                 if (importedClass is PsiClass) {
@@ -146,25 +210,36 @@ class RelatedFilesCollector(private val project: Project) {
                         return
                     }
 
-                    if (!directRefs.contains(qualifiedName)) {
-                        directRefs.add(qualifiedName)
+                    if (!currentRefs.contains(qualifiedName)) {
+                        currentRefs.add(qualifiedName)
 
-                        // Add the containing file to process
-                        val containingFile = importedClass.containingFile
-                        if (containingFile != null &&
-                            containingFile.virtualFile != null &&
-                            !processedFiles.contains(containingFile.virtualFile.path)) {
-                            refsToProcess.add(containingFile)
+                        // Track as indirect reference if not direct and we're beyond depth 0
+                        if (depth > 0 && !directRefs.contains(qualifiedName)) {
+                            indirectRefs.add(qualifiedName)
                         }
 
-                        // If this is an interface and we want implementations
-                        if (settings.state.includeImplementations && importedClass.isInterface) {
-                            findImplementations(importedClass).forEach { implClass ->
-                                val implFile = implClass.containingFile
-                                if (implFile != null &&
-                                    implFile.virtualFile != null &&
-                                    !processedFiles.contains(implFile.virtualFile.path)) {
-                                    refsToProcess.add(implFile)
+                        // Only process files that are direct references or within allowed depth
+                        // and not too many indirect references
+                        if (directRefs.contains(qualifiedName) ||
+                            (depth <= 1 && indirectRefs.size <= settings.state.maxRelatedFiles)) {
+
+                            // Add the containing file to process
+                            val containingFile = importedClass.containingFile
+                            if (containingFile != null &&
+                                containingFile.virtualFile != null &&
+                                !processedFiles.contains(containingFile.virtualFile.path)) {
+                                refsToProcess.add(containingFile)
+                            }
+
+                            // If this is an interface and we want implementations
+                            if (settings.state.includeImplementations && importedClass.isInterface) {
+                                findImplementations(importedClass).forEach { implClass ->
+                                    val implFile = implClass.containingFile
+                                    if (implFile != null &&
+                                        implFile.virtualFile != null &&
+                                        !processedFiles.contains(implFile.virtualFile.path)) {
+                                        refsToProcess.add(implFile)
+                                    }
                                 }
                             }
                         }
@@ -174,8 +249,11 @@ class RelatedFilesCollector(private val project: Project) {
 
             private fun collectKotlinImport(
                 importDirective: KtImportDirective,
+                currentRefs: MutableSet<String>,
+                refsToProcess: MutableSet<PsiFile>,
                 directRefs: MutableSet<String>,
-                refsToProcess: MutableSet<PsiFile>
+                indirectRefs: MutableSet<String>,
+                depth: Int
             ) {
                 val importPath = importDirective.importPath?.pathStr ?: return
 
@@ -184,27 +262,38 @@ class RelatedFilesCollector(private val project: Project) {
                     return
                 }
 
-                if (!directRefs.contains(importPath)) {
-                    directRefs.add(importPath)
+                if (!currentRefs.contains(importPath)) {
+                    currentRefs.add(importPath)
 
-                    // Resolve the import to a class
-                    val importedClass = resolveKotlinImport(importPath)
-                    if (importedClass != null) {
-                        val containingFile = importedClass.containingFile
-                        if (containingFile != null &&
-                            containingFile.virtualFile != null &&
-                            !processedFiles.contains(containingFile.virtualFile.path)) {
-                            refsToProcess.add(containingFile)
-                        }
+                    // Track as indirect reference if not direct and we're beyond depth 0
+                    if (depth > 0 && !directRefs.contains(importPath)) {
+                        indirectRefs.add(importPath)
+                    }
 
-                        // If this is an interface and we want implementations
-                        if (settings.state.includeImplementations && importedClass.isInterface) {
-                            findImplementations(importedClass).forEach { implClass ->
-                                val implFile = implClass.containingFile
-                                if (implFile != null &&
-                                    implFile.virtualFile != null &&
-                                    !processedFiles.contains(implFile.virtualFile.path)) {
-                                    refsToProcess.add(implFile)
+                    // Only process files that are direct references or within allowed depth
+                    // and not too many indirect references
+                    if (directRefs.contains(importPath) ||
+                        (depth <= 1 && indirectRefs.size <= settings.state.maxRelatedFiles)) {
+
+                        // Resolve the import to a class
+                        val importedClass = resolveKotlinImport(importPath)
+                        if (importedClass != null) {
+                            val containingFile = importedClass.containingFile
+                            if (containingFile != null &&
+                                containingFile.virtualFile != null &&
+                                !processedFiles.contains(containingFile.virtualFile.path)) {
+                                refsToProcess.add(containingFile)
+                            }
+
+                            // If this is an interface and we want implementations
+                            if (settings.state.includeImplementations && importedClass.isInterface) {
+                                findImplementations(importedClass).forEach { implClass ->
+                                    val implFile = implClass.containingFile
+                                    if (implFile != null &&
+                                        implFile.virtualFile != null &&
+                                        !processedFiles.contains(implFile.virtualFile.path)) {
+                                        refsToProcess.add(implFile)
+                                    }
                                 }
                             }
                         }
@@ -214,7 +303,7 @@ class RelatedFilesCollector(private val project: Project) {
         })
 
         // Process collected references
-        for (referencedFile in references) {
+        for (referencedFile in referencesToProcess) {
             val virtualFile = referencedFile.virtualFile ?: continue
 
             if (processedFiles.add(virtualFile.path)) {
@@ -238,6 +327,8 @@ class RelatedFilesCollector(private val project: Project) {
                         referencedFile,
                         result,
                         processedFiles,
+                        directReferences,
+                        indirectReferences,
                         currentDepth + 1,
                         maxDepth,
                         maxFiles,
@@ -357,4 +448,3 @@ class RelatedFilesCollector(private val project: Project) {
         return sb.toString()
     }
 }
-

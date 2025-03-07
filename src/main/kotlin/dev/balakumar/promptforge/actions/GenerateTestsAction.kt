@@ -72,10 +72,10 @@ class GenerateTestsAction : AnAction() {
             RelatedFilesCollector(project).collectRelatedFiles(file)
         }
 
-        // Create the prompt using the new file template
+        // Create the prompt using the complete test class template
         val settings = PromptForgeSettings.getInstance()
         val prompt = createNewFilePrompt(
-            settings.state.newFilePromptTemplate,
+            settings.state.completeTestClassPromptTemplate,  // Updated reference
             className,
             currentContent,
             relatedFiles
@@ -99,27 +99,31 @@ class GenerateTestsAction : AnAction() {
         // Get the Git root directory
         val gitRoot = FileUtils.findGitRoot(file)
         if (gitRoot == null) {
-            showError(project, "Could not find Git repository for this file.")
+            LOG.info("Could not find Git repository for this file. Handling as new file.")
+            handleNewFile(project, file, indicator)
             return
         }
 
         // Check if file has changes
         if (!FileUtils.hasGitChanges(gitRoot, file)) {
-            showError(project, "No changes detected in the file.")
+            LOG.info("No Git changes detected for this file. Handling as new file.")
+            handleNewFile(project, file, indicator)
             return
         }
 
-        // Get the original content from Git
+        // Get original content
         val originalContent = FileUtils.getOriginalContent(gitRoot, file)
         if (originalContent == null) {
-            showError(project, "Could not retrieve the original content from Git.")
+            LOG.info("Could not retrieve original content from Git. This might be a new file. Handling as new file.")
+            handleNewFile(project, file, indicator)
             return
         }
 
         // Generate diff
         val diff = FileUtils.generateDiff(gitRoot, file)
         if (diff.isNullOrBlank()) {
-            showError(project, "No changes detected in the file.")
+            LOG.info("No diff generated for this file. Handling as new file.")
+            handleNewFile(project, file, indicator)
             return
         }
 
@@ -129,7 +133,8 @@ class GenerateTestsAction : AnAction() {
         }
 
         if (testFile == null) {
-            showError(project, "Could not find a related test file.")
+            LOG.info("Could not find a related test file. Handling as new file.")
+            handleNewFile(project, file, indicator)
             return
         }
 
@@ -141,10 +146,10 @@ class GenerateTestsAction : AnAction() {
             RelatedFilesCollector(project).collectRelatedFiles(file)
         }
 
-        // Create the prompt using the modified file template
+        // Create the prompt using the test methods for changes template
         val settings = PromptForgeSettings.getInstance()
         val prompt = createModifiedFilePrompt(
-            settings.state.modifiedFilePromptTemplate,
+            settings.state.testMethodsForChangesPromptTemplate,
             originalContent,
             diff,
             testContent,

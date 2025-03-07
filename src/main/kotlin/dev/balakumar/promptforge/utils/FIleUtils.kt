@@ -38,46 +38,107 @@ object FileUtils {
     fun hasGitChanges(gitRoot: File, file: VirtualFile): Boolean {
         val relativePath = getRelativePath(gitRoot, file) ?: return false
 
-        val process = ProcessBuilder("git", "diff", "--name-only", "HEAD", "--", relativePath)
-            .directory(gitRoot)
-            .redirectErrorStream(true)
-            .start()
+        try {
+            val process = ProcessBuilder("git", "diff", "--name-only", "HEAD", "--", relativePath)
+                .directory(gitRoot)
+                .redirectErrorStream(true)
+                .start()
 
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val output = reader.readText()
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val output = reader.readText()
 
-        val exitCode = process.waitFor()
-        return exitCode == 0 && output.trim().isNotEmpty()
+            val exitCode = process.waitFor()
+
+            // If the file is new (not in HEAD), git diff might not show changes
+            // So also check if it's staged
+            if (exitCode == 0 && output.trim().isEmpty()) {
+                // Check if it's staged
+                val stagedProcess = ProcessBuilder("git", "diff", "--name-only", "--staged", "--", relativePath)
+                    .directory(gitRoot)
+                    .redirectErrorStream(true)
+                    .start()
+
+                val stagedReader = BufferedReader(InputStreamReader(stagedProcess.inputStream))
+                val stagedOutput = stagedReader.readText()
+
+                val stagedExitCode = stagedProcess.waitFor()
+                return stagedExitCode == 0 && stagedOutput.trim().isNotEmpty()
+            }
+
+            return exitCode == 0 && output.trim().isNotEmpty()
+        } catch (e: Exception) {
+            LOG.error("Error checking for git changes", e)
+            return false
+        }
     }
 
     fun getOriginalContent(gitRoot: File, file: VirtualFile): String? {
         val relativePath = getRelativePath(gitRoot, file) ?: return null
 
-        val process = ProcessBuilder("git", "show", "HEAD:$relativePath")
-            .directory(gitRoot)
-            .redirectErrorStream(true)
-            .start()
+        try {
+            val process = ProcessBuilder("git", "show", "HEAD:$relativePath")
+                .directory(gitRoot)
+                .redirectErrorStream(true)
+                .start()
 
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val output = reader.readText()
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val output = reader.readText()
 
-        val exitCode = process.waitFor()
-        return if (exitCode == 0) output else null
+            val exitCode = process.waitFor()
+
+            // If exit code is not 0, it might be a new file or another error
+            if (exitCode != 0) {
+                LOG.info("Git show returned non-zero exit code: $exitCode for $relativePath")
+                return null
+            }
+
+            return output
+        } catch (e: Exception) {
+            LOG.error("Error executing git show command", e)
+            return null
+        }
     }
 
     fun generateDiff(gitRoot: File, file: VirtualFile): String? {
         val relativePath = getRelativePath(gitRoot, file) ?: return null
 
-        val process = ProcessBuilder("git", "diff", "HEAD", "--", relativePath)
-            .directory(gitRoot)
-            .redirectErrorStream(true)
-            .start()
+        try {
+            // First try regular diff for working tree changes
+            val process = ProcessBuilder("git", "diff", "HEAD", "--", relativePath)
+                .directory(gitRoot)
+                .redirectErrorStream(true)
+                .start()
 
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val output = reader.readText()
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val output = reader.readText()
 
-        val exitCode = process.waitFor()
-        return if (exitCode == 0 && output.trim().isNotEmpty()) output else null
+            val exitCode = process.waitFor()
+
+            // If no working tree changes, check staged changes
+            if (exitCode == 0 && output.trim().isEmpty()) {
+                val stagedProcess = ProcessBuilder("git", "diff", "--staged", "--", relativePath)
+                    .directory(gitRoot)
+                    .redirectErrorStream(true)
+                    .start()
+
+                val stagedReader = BufferedReader(InputStreamReader(stagedProcess.inputStream))
+                val stagedOutput = stagedReader.readText()
+
+                val stagedExitCode = stagedProcess.waitFor()
+
+                if (stagedExitCode == 0 && stagedOutput.trim().isNotEmpty()) {
+                    return stagedOutput
+                }
+            } else if (exitCode == 0 && output.trim().isNotEmpty()) {
+                return output
+            }
+
+            // If we get here, there's no diff or there was an error
+            return null
+        } catch (e: Exception) {
+            LOG.error("Error generating git diff", e)
+            return null
+        }
     }
 
     fun getRelativePath(gitRoot: File, file: VirtualFile): String? {
@@ -92,7 +153,6 @@ object FileUtils {
         return filePath.substring(rootPath.length + 1).replace('\\', '/')
     }
 
-    // Replace this method in FileUtils.kt
     fun findTestFile(project: Project, file: VirtualFile): VirtualFile? {
         // First try using TestFinderHelper
         val psiFile = PsiManager.getInstance(project).findFile(file)
@@ -153,7 +213,6 @@ object FileUtils {
         return null
     }
 
-
     fun extractClassName(file: VirtualFile, project: Project): String? {
         val psiFile = PsiManager.getInstance(project).findFile(file)
         if (psiFile is PsiJavaFile) {
@@ -168,20 +227,56 @@ object FileUtils {
     fun isNewFile(file: VirtualFile): Boolean {
         val gitRoot = findGitRoot(file) ?: return true
 
-        // Check if file exists in git
-        val relativePath = getRelativePath(gitRoot, file) ?: return true
+        try {
+            // Check if file is untracked
+            val relativePath = getRelativePath(gitRoot, file) ?: return true
 
-        val process = ProcessBuilder("git", "ls-files", "--", relativePath)
-            .directory(gitRoot)
-            .redirectErrorStream(true)
-            .start()
+            // Check if file is untracked (not yet added to git)
+            var process = ProcessBuilder("git", "ls-files", "--others", "--exclude-standard", "--", relativePath)
+                .directory(gitRoot)
+                .redirectErrorStream(true)
+                .start()
 
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val output = reader.readText()
+            var reader = BufferedReader(InputStreamReader(process.inputStream))
+            var output = reader.readText()
 
-        val exitCode = process.waitFor()
-        return exitCode != 0 || output.trim().isEmpty()
+            if (process.waitFor() == 0 && output.trim().isNotEmpty()) {
+                // File is untracked
+                return true
+            }
+
+            // Check if file is tracked but not in HEAD (newly added)
+            process = ProcessBuilder("git", "ls-files", "--", relativePath)
+                .directory(gitRoot)
+                .redirectErrorStream(true)
+                .start()
+
+            reader = BufferedReader(InputStreamReader(process.inputStream))
+            output = reader.readText()
+
+            if (process.waitFor() != 0 || output.trim().isEmpty()) {
+                // File is not tracked by git
+                return true
+            }
+
+            // Check if file exists in HEAD
+            process = ProcessBuilder("git", "show", "HEAD:$relativePath")
+                .directory(gitRoot)
+                .redirectErrorStream(true)
+                .start()
+
+            if (process.waitFor() != 0) {
+                // File doesn't exist in HEAD (newly added)
+                return true
+            }
+
+            return false
+        } catch (e: Exception) {
+            LOG.error("Error checking if file is new", e)
+            return true // Assume new file on error
+        }
     }
+
     fun findTargetFile(e: AnActionEvent): VirtualFile? {
         // Strategy 1: Direct virtual file
         val virtualFile = e.getData(CommonDataKeys.VIRTUAL_FILE)
@@ -225,5 +320,4 @@ object FileUtils {
 
         return null
     }
-
 }

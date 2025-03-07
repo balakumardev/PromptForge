@@ -228,7 +228,7 @@ class PromptForgeSettingsConfigurable : Configurable {
         val promptsTabbedPane = JTabbedPane()
 
         // New file prompt template
-        newFilePromptArea = JTextArea(settings.state.newFilePromptTemplate, 20, 80)
+        newFilePromptArea = JTextArea(settings.state.completeTestClassPromptTemplate, 20, 80)
         newFilePromptArea.font = Font("Monospaced", Font.PLAIN, 13)
         val newFileScrollPane = JBScrollPane(newFilePromptArea)
 
@@ -256,10 +256,10 @@ class PromptForgeSettingsConfigurable : Configurable {
 
         newFilePanel.add(newFileHelpPanel, BorderLayout.NORTH)
         newFilePanel.add(newFileScrollPane, BorderLayout.CENTER)
-        promptsTabbedPane.addTab("New File Prompt", newFilePanel)
+        promptsTabbedPane.addTab("Complete Test Class Prompt", newFilePanel)
 
         // Modified file prompt template
-        modifiedFilePromptArea = JTextArea(settings.state.modifiedFilePromptTemplate, 20, 80)
+        modifiedFilePromptArea = JTextArea(settings.state.testMethodsForChangesPromptTemplate, 20, 80)
         modifiedFilePromptArea.font = Font("Monospaced", Font.PLAIN, 13)
         val modifiedFileScrollPane = JBScrollPane(modifiedFilePromptArea)
 
@@ -287,7 +287,7 @@ class PromptForgeSettingsConfigurable : Configurable {
 
         modifiedFilePanel.add(modifiedFileHelpPanel, BorderLayout.NORTH)
         modifiedFilePanel.add(modifiedFileScrollPane, BorderLayout.CENTER)
-        promptsTabbedPane.addTab("Modified File Prompt", modifiedFilePanel)
+        promptsTabbedPane.addTab("Test Methods for Changes Prompt", modifiedFilePanel)
 
         // Explain code prompt template
         explainCodePromptArea = JTextArea(settings.state.explainCodePromptTemplate, 20, 80)
@@ -416,8 +416,8 @@ class PromptForgeSettingsConfigurable : Configurable {
     }
 
     override fun isModified(): Boolean {
-        return settings.state.newFilePromptTemplate != newFilePromptArea.text ||
-                settings.state.modifiedFilePromptTemplate != modifiedFilePromptArea.text ||
+        return settings.state.completeTestClassPromptTemplate != newFilePromptArea.text ||
+                settings.state.testMethodsForChangesPromptTemplate != modifiedFilePromptArea.text ||
                 settings.state.explainCodePromptTemplate != explainCodePromptArea.text ||
                 settings.state.askQuestionPromptTemplate != askQuestionPromptArea.text ||
                 settings.state.makeChangePromptTemplate != makeChangePromptArea.text ||
@@ -435,8 +435,8 @@ class PromptForgeSettingsConfigurable : Configurable {
     }
 
     override fun apply() {
-        settings.state.newFilePromptTemplate = newFilePromptArea.text
-        settings.state.modifiedFilePromptTemplate = modifiedFilePromptArea.text
+        settings.state.completeTestClassPromptTemplate = newFilePromptArea.text
+        settings.state.testMethodsForChangesPromptTemplate = modifiedFilePromptArea.text
         settings.state.explainCodePromptTemplate = explainCodePromptArea.text
         settings.state.askQuestionPromptTemplate = askQuestionPromptArea.text
         settings.state.makeChangePromptTemplate = makeChangePromptArea.text
@@ -461,8 +461,8 @@ class PromptForgeSettingsConfigurable : Configurable {
     }
 
     override fun reset() {
-        newFilePromptArea.text = settings.state.newFilePromptTemplate
-        modifiedFilePromptArea.text = settings.state.modifiedFilePromptTemplate
+        newFilePromptArea.text = settings.state.completeTestClassPromptTemplate
+        modifiedFilePromptArea.text = settings.state.testMethodsForChangesPromptTemplate
         explainCodePromptArea.text = settings.state.explainCodePromptTemplate
         askQuestionPromptArea.text = settings.state.askQuestionPromptTemplate
         makeChangePromptArea.text = settings.state.makeChangePromptTemplate

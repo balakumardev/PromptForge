@@ -41,6 +41,24 @@ PromptForge is a simple yet powerful plugin that gives you complete control over
     - 🔄 **Make Changes** - For implementing specific changes
     - 📋 **Copy with Context** - For custom prompts
 
+
+## ⚙️ Installation
+
+### From JetBrains Marketplace (SOON, NOT PUBLISHED YET)
+
+1. In IntelliJ IDEA, go to `Settings` → `Plugins` → `Marketplace`
+2. Search for "PromptForge"
+3. Click "Install"
+4. Restart IntelliJ IDEA when prompted
+
+### Manual Installation
+
+1. Download the latest release ZIP file from the [Releases page](https://github.com/balakumardev/PromptForge/releases)
+2. In IntelliJ IDEA, go to `Settings` → `Plugins`
+3. Click the gear icon (⚙️) and select `Install Plugin from Disk...`
+4. Choose the downloaded ZIP file
+5. Restart IntelliJ IDEA when prompted
+6. 
 ## 📖 Usage
 
 ### The Basic Workflow
@@ -70,23 +88,6 @@ Need to implement a feature or fix a bug? This action helps you get accurate sug
 ### Copy with Context
 
 For power users who want to craft their own prompts but still need the related files and context.
-
-## ⚙️ Installation
-
-### From JetBrains Marketplace (Recommended)
-
-1. In IntelliJ IDEA, go to `Settings` → `Plugins` → `Marketplace`
-2. Search for "PromptForge"
-3. Click "Install"
-4. Restart IntelliJ IDEA when prompted
-
-### Manual Installation
-
-1. Download the latest release ZIP file from the [Releases page](https://github.com/balakumardev/PromptForge/releases)
-2. In IntelliJ IDEA, go to `Settings` → `Plugins`
-3. Click the gear icon (⚙️) and select `Install Plugin from Disk...`
-4. Choose the downloaded ZIP file
-5. Restart IntelliJ IDEA when prompted
 
 ## ⚙️ Configuration
 
