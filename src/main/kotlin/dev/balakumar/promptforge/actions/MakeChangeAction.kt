@@ -35,7 +35,6 @@ import java.awt.event.KeyEvent
 import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.JComponent.WHEN_FOCUSED
-import javax.swing.SwingUtilities
 import javax.swing.BorderFactory
 import javax.swing.Timer
 
@@ -45,36 +44,26 @@ class MakeChangeAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = FileUtils.findTargetFile(e) ?: return
-
         if (!FileUtils.isJavaFile(file)) {
             Messages.showErrorDialog(project, "This action only works with Java files.", "Unsupported File Type")
             return
         }
-
-        // Show dialog to get the change request
         val changeRequest = showChangeRequestDialog(project, file) ?: return
-
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Preparing Change Request", false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    // Get settings
                     val settings = PromptForgeSettings.getInstance()
-
-                    // Get the current content
-                    val currentContent = String(file.contentsToByteArray())
-
-                    // Extract class name inside a read action
+                    var currentContent = String(file.contentsToByteArray())
+                    if (settings.state.trimWhitespace) {
+                        currentContent = FileUtils.trimWhitespace(currentContent)
+                    }
                     val className = ReadAction.compute<String, Throwable> {
                         FileUtils.extractClassName(file, project) ?: file.nameWithoutExtension
                     }
-
-                    // Collect related files
                     indicator.text = "Collecting related files"
                     val relatedFiles = ReadAction.compute<List<RelatedFile>, Throwable> {
                         RelatedFilesCollector(project).collectRelatedFiles(file)
                     }
-
-                    // Create the prompt
                     val prompt = createChangePrompt(
                         settings.state.makeChangePromptTemplate,
                         className,
@@ -82,8 +71,6 @@ class MakeChangeAction : AnAction() {
                         changeRequest,
                         relatedFiles
                     )
-
-                    // Copy to clipboard
                     ApplicationManager.getApplication().invokeLater {
                         val selection = StringSelection(prompt)
                         Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
@@ -104,18 +91,12 @@ class MakeChangeAction : AnAction() {
     private fun showChangeRequestDialog(project: Project, file: VirtualFile): String? {
         val dialog = object : DialogWrapper(project, true) {
             private val textArea = JTextArea(10, 50)
-
             init {
                 title = "Describe the Change You Want to Make"
-
-                // Setup key bindings for the text area
                 setupKeyBindings()
-
                 init()
             }
-
             private fun setupKeyBindings() {
-                // Map Enter key to close dialog with OK
                 val enterAction = object : AbstractAction() {
                     override fun actionPerformed(e: ActionEvent) {
                         doOKAction()
@@ -123,8 +104,6 @@ class MakeChangeAction : AnAction() {
                 }
                 textArea.getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "enter")
                 textArea.actionMap.put("enter", enterAction)
-
-                // Map Shift+Enter to insert a newline
                 val shiftEnterAction = object : AbstractAction() {
                     override fun actionPerformed(e: ActionEvent) {
                         textArea.append("\n")
@@ -133,28 +112,20 @@ class MakeChangeAction : AnAction() {
                 textArea.getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK), "shiftEnter")
                 textArea.actionMap.put("shiftEnter", shiftEnterAction)
             }
-
             override fun createCenterPanel(): JComponent {
                 val panel = JPanel(BorderLayout(0, 10))
                 panel.preferredSize = Dimension(600, 300)
                 panel.border = EmptyBorder(15, 15, 15, 15)
-
-                // Add a header with the file name
                 val headerPanel = JPanel(BorderLayout())
                 headerPanel.border = EmptyBorder(0, 0, 10, 0)
-
                 val fileNameLabel = JLabel("File: ${file.name}")
                 fileNameLabel.font = fileNameLabel.font.deriveFont(Font.BOLD, 14f)
                 headerPanel.add(fileNameLabel, BorderLayout.NORTH)
-
                 val instructionLabel = JLabel("Describe the change you want to make. Press Enter to submit or Shift+Enter for a new line.")
                 instructionLabel.font = instructionLabel.font.deriveFont(Font.ITALIC)
                 instructionLabel.foreground = Color(100, 100, 100)
                 headerPanel.add(instructionLabel, BorderLayout.SOUTH)
-
                 panel.add(headerPanel, BorderLayout.NORTH)
-
-                // Style the text area
                 textArea.font = Font("Monospaced", Font.PLAIN, 14)
                 textArea.lineWrap = true
                 textArea.wrapStyleWord = true
@@ -162,21 +133,14 @@ class MakeChangeAction : AnAction() {
                     LineBorder(Color(180, 180, 180), 1),
                     EmptyBorder(8, 8, 8, 8)
                 )
-
-                // Create a scroll pane with styled border
                 val scrollPane = JScrollPane(textArea)
                 scrollPane.border = BorderFactory.createEmptyBorder()
                 scrollPane.viewportBorder = BorderFactory.createEmptyBorder()
-
                 panel.add(scrollPane, BorderLayout.CENTER)
-
                 return panel
             }
-
             override fun show() {
                 super.show()
-
-                // Use a timer to repeatedly request focus
                 val timer = Timer(100, null)
                 timer.addActionListener {
                     if (textArea.hasFocus()) {
@@ -188,10 +152,8 @@ class MakeChangeAction : AnAction() {
                 timer.isRepeats = true
                 timer.start()
             }
-
             fun getChangeRequest(): String = textArea.text
         }
-
         return if (dialog.showAndGet()) {
             val changeRequest = dialog.getChangeRequest().trim()
             if (changeRequest.isEmpty()) null else changeRequest
@@ -206,13 +168,9 @@ class MakeChangeAction : AnAction() {
         relatedFiles: List<RelatedFile>
     ): String {
         var result = template
-
-        // Replace placeholders
         result = result.replace("{CLASS_NAME}", className)
         result = result.replace("{CLASS_CONTENT}", classContent)
         result = result.replace("{CHANGE_REQUEST}", changeRequest)
-
-        // Handle related files content
         val relatedFilesContent = if (relatedFiles.isNotEmpty()) {
             val sb = StringBuilder("\n\nRelated files for context:")
             for (relatedFile in relatedFiles) {
@@ -224,7 +182,6 @@ class MakeChangeAction : AnAction() {
             ""
         }
         result = result.replace("{RELATED_FILES_CONTENT}", relatedFilesContent)
-
         return result
     }
 
@@ -235,27 +192,18 @@ class MakeChangeAction : AnAction() {
     }
 
     override fun update(e: AnActionEvent) {
-        // Always make it visible
         e.presentation.isVisible = true
-
-        // Get the project
         val project = e.project
         if (project == null) {
             e.presentation.isEnabled = false
             return
         }
-
-        // Try multiple strategies to get the current file
         val file = FileUtils.findTargetFile(e)
-
         if (file == null) {
             e.presentation.isEnabled = false
             return
         }
-
-        // Check if it's a Java file
         val isJavaFile = file.extension == "java"
-
         e.presentation.isEnabled = isJavaFile
     }
 }

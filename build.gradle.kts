@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.balakumar"
-version = "1.0"
+version = "1.1"
 
 repositories {
     mavenCentral()
@@ -30,21 +30,17 @@ tasks {
     buildSearchableOptions {
         enabled = false
     }
-
     withType<JavaCompile> {
         sourceCompatibility = "17"
         targetCompatibility = "17"
     }
-
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
     }
-
     patchPluginXml {
-        sinceBuild.set("231")    // Beginning of 2023.1
-        untilBuild.set("243.*")  // Up to 2024.3
+        sinceBuild.set("231") // Beginning of 2023.1
+        untilBuild.set("243.*") // Up to 2024.3
     }
-
     test {
         exclude("**/*")
     }

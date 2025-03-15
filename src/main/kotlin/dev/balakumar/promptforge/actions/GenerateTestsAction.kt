@@ -25,26 +25,18 @@ class GenerateTestsAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = FileUtils.findTargetFile(e) ?: return
-
         if (!FileUtils.isJavaFile(file)) {
             Messages.showErrorDialog(project, "This action only works with Java files.", "Unsupported File Type")
             return
         }
-
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Generating Tests", false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    // Get settings
                     val settings = PromptForgeSettings.getInstance()
-
-                    // Check if this is a new file or a modified file
                     val isNewFile = FileUtils.isNewFile(file)
-
                     if (isNewFile) {
-                        // Handle new file case
                         handleNewFile(project, file, indicator)
                     } else {
-                        // Handle modified file case
                         handleModifiedFile(project, file, indicator)
                     }
                 } catch (ex: Exception) {
@@ -57,31 +49,24 @@ class GenerateTestsAction : AnAction() {
 
     private fun handleNewFile(project: Project, file: VirtualFile, indicator: ProgressIndicator) {
         indicator.text = "Generating tests for new file"
-
-        // Get the current content
-        val currentContent = String(file.contentsToByteArray())
-
-        // Extract class name
+        var currentContent = String(file.contentsToByteArray())
+        if (PromptForgeSettings.getInstance().state.trimWhitespace) {
+            currentContent = FileUtils.trimWhitespace(currentContent)
+        }
         val className = ReadAction.compute<String, Throwable> {
             FileUtils.extractClassName(file, project) ?: file.nameWithoutExtension
         }
-
-        // Collect related files
         indicator.text = "Collecting related files"
         val relatedFiles = ReadAction.compute<List<RelatedFile>, Throwable> {
             RelatedFilesCollector(project).collectRelatedFiles(file)
         }
-
-        // Create the prompt using the complete test class template
         val settings = PromptForgeSettings.getInstance()
         val prompt = createNewFilePrompt(
-            settings.state.completeTestClassPromptTemplate,  // Updated reference
+            settings.state.completeTestClassPromptTemplate,
             className,
             currentContent,
             relatedFiles
         )
-
-        // Copy to clipboard
         ApplicationManager.getApplication().invokeLater {
             val selection = StringSelection(prompt)
             Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
@@ -95,68 +80,55 @@ class GenerateTestsAction : AnAction() {
 
     private fun handleModifiedFile(project: Project, file: VirtualFile, indicator: ProgressIndicator) {
         indicator.text = "Generating tests for modified file"
-
-        // Get the Git root directory
         val gitRoot = FileUtils.findGitRoot(file)
         if (gitRoot == null) {
             LOG.info("Could not find Git repository for this file. Handling as new file.")
             handleNewFile(project, file, indicator)
             return
         }
-
-        // Check if file has changes
         if (!FileUtils.hasGitChanges(gitRoot, file)) {
             LOG.info("No Git changes detected for this file. Handling as new file.")
             handleNewFile(project, file, indicator)
             return
         }
-
-        // Get original content
         val originalContent = FileUtils.getOriginalContent(gitRoot, file)
         if (originalContent == null) {
-            LOG.info("Could not retrieve original content from Git. This might be a new file. Handling as new file.")
+            LOG.info("Could not retrieve original content from Git. Handling as new file.")
             handleNewFile(project, file, indicator)
             return
         }
-
-        // Generate diff
         val diff = FileUtils.generateDiff(gitRoot, file)
         if (diff.isNullOrBlank()) {
             LOG.info("No diff generated for this file. Handling as new file.")
             handleNewFile(project, file, indicator)
             return
         }
-
-        // Find related test file
         val testFile = ReadAction.compute<VirtualFile?, Throwable> {
             FileUtils.findTestFile(project, file)
         }
-
         if (testFile == null) {
             LOG.info("Could not find a related test file. Handling as new file.")
             handleNewFile(project, file, indicator)
             return
         }
-
-        val testContent = String(testFile.contentsToByteArray())
-
-        // Collect related files
+        var testContent = String(testFile.contentsToByteArray())
+        var originalContentTrimmed = originalContent
+        if (PromptForgeSettings.getInstance().state.trimWhitespace) {
+            originalContentTrimmed = FileUtils.trimWhitespace(originalContent)
+            testContent = FileUtils.trimWhitespace(testContent)
+        }
         indicator.text = "Collecting related files"
         val relatedFiles = ReadAction.compute<List<RelatedFile>, Throwable> {
             RelatedFilesCollector(project).collectRelatedFiles(file)
         }
-
-        // Create the prompt using the test methods for changes template
         val settings = PromptForgeSettings.getInstance()
         val prompt = createModifiedFilePrompt(
             settings.state.testMethodsForChangesPromptTemplate,
-            originalContent,
+            originalContentTrimmed,
             diff,
             testContent,
             relatedFiles
         )
-
-        // Copy to clipboard
         ApplicationManager.getApplication().invokeLater {
             val selection = StringSelection(prompt)
             Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
@@ -175,12 +147,8 @@ class GenerateTestsAction : AnAction() {
         relatedFiles: List<RelatedFile>
     ): String {
         var result = template
-
-        // Replace placeholders
         result = result.replace("{CLASS_NAME}", className)
         result = result.replace("{CLASS_CONTENT}", classContent)
-
-        // Handle related files content
         val relatedFilesContent = if (relatedFiles.isNotEmpty()) {
             val sb = StringBuilder("\n\nRelated files for context:")
             for (relatedFile in relatedFiles) {
@@ -192,7 +160,6 @@ class GenerateTestsAction : AnAction() {
             ""
         }
         result = result.replace("{RELATED_FILES_CONTENT}", relatedFilesContent)
-
         return result
     }
 
@@ -204,21 +171,15 @@ class GenerateTestsAction : AnAction() {
         relatedFiles: List<RelatedFile>
     ): String {
         var result = template
-
-        // Replace placeholders
         result = result.replace("{ORIGINAL_CLASS}", originalContent)
         result = result.replace("{DIFF}", diff)
         result = result.replace("{TEST_FILE}", testContent)
-
-        // Handle related files section
         val relatedFilesSection = if (relatedFiles.isNotEmpty()) {
             "4. ${relatedFiles.size} related files for additional context"
         } else {
             ""
         }
         result = result.replace("{RELATED_FILES_SECTION}", relatedFilesSection)
-
-        // Handle related files content
         val relatedFilesContent = if (relatedFiles.isNotEmpty()) {
             val sb = StringBuilder("\n\nRelated files for context:")
             for (relatedFile in relatedFiles) {
@@ -230,7 +191,6 @@ class GenerateTestsAction : AnAction() {
             ""
         }
         result = result.replace("{RELATED_FILES_CONTENT}", relatedFilesContent)
-
         return result
     }
 
@@ -241,27 +201,18 @@ class GenerateTestsAction : AnAction() {
     }
 
     override fun update(e: AnActionEvent) {
-        // Always make it visible
         e.presentation.isVisible = true
-
-        // Get the project
         val project = e.project
         if (project == null) {
             e.presentation.isEnabled = false
             return
         }
-
-        // Try multiple strategies to get the current file
         val file = FileUtils.findTargetFile(e)
-
         if (file == null) {
             e.presentation.isEnabled = false
             return
         }
-
-        // Check if it's a Java file
         val isJavaFile = file.extension == "java"
-
         e.presentation.isEnabled = isJavaFile
     }
 }

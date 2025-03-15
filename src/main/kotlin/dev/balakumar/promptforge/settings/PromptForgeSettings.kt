@@ -12,7 +12,6 @@ import com.intellij.openapi.components.service
     storages = [Storage("promptForgeSettings.xml")]
 )
 class PromptForgeSettings : PersistentStateComponent<PromptForgeSettings.State> {
-
     data class State(
         // General settings
         var includeRelatedFiles: Boolean = true,
@@ -25,15 +24,15 @@ class PromptForgeSettings : PersistentStateComponent<PromptForgeSettings.State> 
         var includeDecompiled: Boolean = false,
         var maxDecompiledFiles: Int = 3,
         var skipJavaPackages: Boolean = true,
-
+        // New optimization settings
+        var trimWhitespace: Boolean = true,
+        var excludeImportsInRelatedFiles: Boolean = true,
         // Prompt templates
-
         var completeTestClassPromptTemplate: String = DEFAULT_COMPLETE_TEST_CLASS_PROMPT,
         var testMethodsForChangesPromptTemplate: String = DEFAULT_TEST_METHODS_FOR_CHANGES_PROMPT,
         var explainCodePromptTemplate: String = DEFAULT_EXPLAIN_CODE_PROMPT,
         var askQuestionPromptTemplate: String = DEFAULT_ASK_QUESTION_PROMPT,
         var makeChangePromptTemplate: String = DEFAULT_MAKE_CHANGE_PROMPT,
-
         // Excluded packages
         var excludedPackages: List<String> = DEFAULT_EXCLUDED_PACKAGES
     )
@@ -160,37 +159,11 @@ Please provide:
 """
 
         val DEFAULT_EXCLUDED_PACKAGES = listOf(
-            "java.lang",
-            "java.util",
-            "java.io",
-            "java.net",
-            "java.math",
-            "java.time",
-            "java.text",
-            "java.sql",
-            "java.awt",
-            "java.applet",
-            "java.beans",
-            "java.nio",
-            "java.rmi",
-            "java.security",
-            "javax.swing",
-            "javax.servlet",
-            "javax.ejb",
-            "javax.persistence",
-            "javax.xml",
-            "org.w3c",
-            "org.xml",
-            "com.sun",
-            "sun.",
-            "kotlin.",
-            "org.jetbrains",
-            "org.springframework",
-            "org.apache",
-            "com.google",
-            "com.fasterxml"
+            "java.lang", "java.util", "java.io", "java.net", "java.math", "java.time", "java.text", "java.sql",
+            "java.awt", "java.applet", "java.beans", "java.nio", "java.rmi", "java.security", "javax.swing",
+            "javax.servlet", "javax.ejb", "javax.persistence", "javax.xml", "org.w3c", "org.xml", "com.sun",
+            "sun.", "kotlin.", "org.jetbrains", "org.springframework", "org.apache", "com.google", "com.fasterxml"
         )
-
         fun getInstance(): PromptForgeSettings = service()
     }
 }

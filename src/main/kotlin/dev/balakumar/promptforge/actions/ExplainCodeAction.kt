@@ -23,41 +23,31 @@ class ExplainCodeAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = FileUtils.findTargetFile(e) ?: return
-
         if (!FileUtils.isJavaFile(file)) {
             Messages.showErrorDialog(project, "This action only works with Java files.", "Unsupported File Type")
             return
         }
-
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Explaining Code", false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    // Get settings
                     val settings = PromptForgeSettings.getInstance()
-
-                    // Get the current content
-                    val currentContent = String(file.contentsToByteArray())
-
-                    // Extract class name inside a read action
+                    var currentContent = String(file.contentsToByteArray())
+                    if (settings.state.trimWhitespace) {
+                        currentContent = FileUtils.trimWhitespace(currentContent)
+                    }
                     val className = ReadAction.compute<String, Throwable> {
                         FileUtils.extractClassName(file, project) ?: file.nameWithoutExtension
                     }
-
-                    // Collect related files
                     indicator.text = "Collecting related files"
                     val relatedFiles = ReadAction.compute<List<RelatedFile>, Throwable> {
                         RelatedFilesCollector(project).collectRelatedFiles(file)
                     }
-
-                    // Create the prompt
                     val prompt = createExplainPrompt(
                         settings.state.explainCodePromptTemplate,
                         className,
                         currentContent,
                         relatedFiles
                     )
-
-                    // Copy to clipboard
                     ApplicationManager.getApplication().invokeLater {
                         val selection = StringSelection(prompt)
                         Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, null)
@@ -82,12 +72,8 @@ class ExplainCodeAction : AnAction() {
         relatedFiles: List<RelatedFile>
     ): String {
         var result = template
-
-        // Replace placeholders
         result = result.replace("{CLASS_NAME}", className)
         result = result.replace("{CLASS_CONTENT}", classContent)
-
-        // Handle related files content
         val relatedFilesContent = if (relatedFiles.isNotEmpty()) {
             val sb = StringBuilder("\n\nRelated files for context:")
             for (relatedFile in relatedFiles) {
@@ -99,7 +85,6 @@ class ExplainCodeAction : AnAction() {
             ""
         }
         result = result.replace("{RELATED_FILES_CONTENT}", relatedFilesContent)
-
         return result
     }
 
@@ -110,27 +95,18 @@ class ExplainCodeAction : AnAction() {
     }
 
     override fun update(e: AnActionEvent) {
-        // Always make it visible
         e.presentation.isVisible = true
-
-        // Get the project
         val project = e.project
         if (project == null) {
             e.presentation.isEnabled = false
             return
         }
-
-        // Try multiple strategies to get the current file
         val file = FileUtils.findTargetFile(e)
-
         if (file == null) {
             e.presentation.isEnabled = false
             return
         }
-
-        // Check if it's a Java file
         val isJavaFile = file.extension == "java"
-
         e.presentation.isEnabled = isJavaFile
     }
 }
